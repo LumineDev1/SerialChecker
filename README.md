@@ -43,7 +43,8 @@ Each check gets one of five results:
 - **Search** across every value (Ctrl+F), with jump-to-tab results
 - **Five colour themes:** Midnight, Ocean, Forest, Ember, Sakura, remembered between launches
 - **Copy** any value with one click, or select it directly
-- **Export** a full text report to your Desktop (Ctrl+E)
+- **Export** a full text report of the scan to your Desktop (Ctrl+E)
+- **Export comparison results** as a text report or a CSV for Excel, either everything or just the filtered view
 - **Ghost USB cleanup:** remove records of devices that are no longer connected
 - **Fast:** all checks run in parallel
 
@@ -56,13 +57,13 @@ Each check gets one of five results:
 | Ctrl+F | Search all values |
 | F5 | Scan again |
 | Ctrl+S | Save baseline (all tabs, or the current tab) |
-| Ctrl+E | Export report |
+| Ctrl+E | Export the scan report (main window) or the comparison results (Compare) |
 | Esc | Clear search / close Compare |
 
 ## Privacy and permissions
 
 - **Nothing leaves your PC.** Serial Checker makes no network requests.
-- **Saved files:** baselines and settings are stored in `%AppData%\Serial Checker`. Exports go to your Desktop.
+- **Saved files:** baselines and settings are stored in `%AppData%\Serial Checker`. The scan report goes to your Desktop, and comparison exports go wherever you choose.
 - **Admin rights:** the app asks for administrator rights on launch, because TPM, some disk queries, and network adapter details need them. Start it with `--no-elevate` to skip the prompt and run in limited mode.
 
 ## Building from source

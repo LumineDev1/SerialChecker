@@ -169,6 +169,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="22,0,0,0">
                 <Border Width="28" Height="28" CornerRadius="8" Background="{DynamicResource Accent.Soft}">
@@ -178,7 +179,14 @@
                 <Border Width="1" Height="14" Background="{DynamicResource Border.Strong}" Margin="12,0" VerticalAlignment="Center"/>
                 <TextBlock Text="{Binding BaselineText}" Foreground="{StaticResource Text.Tertiary}" FontSize="12.5" VerticalAlignment="Center"/>
             </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+            <Button x:Name="ExportButton" Grid.Column="1" Style="{StaticResource Btn}" VerticalAlignment="Center" Margin="0,0,16,0"
+                    Click="ExportButton_Click" ToolTip="Save the checks shown below as a text report or CSV (Ctrl+E)">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="ExportIcon" Text="&#xEDE1;" Style="{StaticResource Icon}" FontSize="12.5" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="ExportLabel" Text="Export results"/>
+                </StackPanel>
+            </Button>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Top">
                 <Button Style="{StaticResource Btn.Caption}" Content="&#xE921;" ToolTip="Minimize" Click="MinimizeButton_Click"/>
                 <Button x:Name="MaximizeButton" Style="{StaticResource Btn.Caption}" Content="&#xE922;" ToolTip="Maximize" Click="MaximizeButton_Click"/>
                 <Button Style="{StaticResource Btn.CaptionClose}" Content="&#xE8BB;" ToolTip="Close (Esc)" Click="CloseButton_Click"/>

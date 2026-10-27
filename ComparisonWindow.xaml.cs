@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -231,13 +233,21 @@ namespace SerialChecker
                 .Distinct(Comparer)
                 .ToList();
 
+            // Windows fills BIOS Serial from the same SMBIOS field as System Serial, so one spoofed
+            // serial would otherwise be scored twice.
+            string oldSystemSerial = FindValue(oldData, "System Information", "System Serial");
+            string newSystemSerial = FindValue(currentData, "System Information", "System Serial");
+
             foreach (string categoryName in allCategoryNames)
             {
-                var oldItems = BuildItemMap(GetNormalizedItems(oldData, categoryName));
-                var newItems = BuildItemMap(GetNormalizedItems(currentData, categoryName));
+                var oldItems = BuildItemMap(RemoveRepeatedMacs(categoryName, GetNormalizedItems(oldData, categoryName)));
+                var newItems = BuildItemMap(RemoveRepeatedMacs(categoryName, GetNormalizedItems(currentData, categoryName)));
                 var allKeys = oldItems.Keys.Concat(newItems.Keys).Distinct(Comparer);
                 var allCategoryItems = new List<ComparisonItem>();
                 var importantCategoryItems = new List<ComparisonItem>();
+                ArpContext? arpContext = Comparer.Equals(categoryName, "ARP Information")
+                    ? new ArpContext { CurrentTableReadable = newItems.Values.Any(item => IsArpEntryLabel(item.Label)) }
+                    : null;
 
                 foreach (string key in allKeys)
                 {
@@ -258,7 +268,14 @@ namespace SerialChecker
                         ? BuildTpmContext(oldItems, newItems)
                         : null;
 
-                    ComparisonItem comparisonItem = AssessItem(categoryName, label, oldValue, newValue, occurrence, diskContext, tpmContext);
+                    bool mirrorsSystemSerial = Comparer.Equals(categoryName, "BIOS Information") &&
+                                               Comparer.Equals(label, "BIOS Serial") &&
+                                               !string.IsNullOrWhiteSpace(oldSystemSerial) &&
+                                               !string.IsNullOrWhiteSpace(newSystemSerial) &&
+                                               Comparer.Equals(oldValue.Trim(), oldSystemSerial.Trim()) &&
+                                               Comparer.Equals(newValue.Trim(), newSystemSerial.Trim());
+
+                    ComparisonItem comparisonItem = AssessItem(categoryName, label, oldValue, newValue, occurrence, diskContext, tpmContext, arpContext, mirrorsSystemSerial);
                     allCategoryItems.Add(comparisonItem);
                     if (IsImportant(categoryName, label))
                     {
@@ -312,7 +329,7 @@ namespace SerialChecker
                 "Disk Drive Information" => "Drive IDs from each query method",
                 "Volume Serial Numbers" => "Volume IDs visible to Windows",
                 "Network Information" => "Adapter settings and MAC addresses",
-                "ARP Information" => "Current ARP entries; unchanged entries need attention",
+                "ARP Information" => "Current ARP entries; unchanged device entries need attention",
                 "Monitor Information" => "Monitor IDs read from EDID",
                 "GPU Information" => "Graphics adapter IDs and driver details",
                 "USB Peripherals" => "Current and disconnected USB records",
@@ -382,6 +399,24 @@ namespace SerialChecker
             }
         }
 
+        private static string FindValue(IEnumerable<AuditCategory> data, string categoryName, string label)
+        {
+            return GetNormalizedItems(data, categoryName)
+                .FirstOrDefault(item => Comparer.Equals(item.Label, label))?.Value ?? "";
+        }
+
+        // Adapters that share one MAC (a virtual switch bound to its NIC, for example) were each listed,
+        // so one address was scored several times. Keep the first row for each MAC value.
+        private static IEnumerable<AuditItem> RemoveRepeatedMacs(string categoryName, IEnumerable<AuditItem> items)
+        {
+            if (!Comparer.Equals(categoryName, "Network Information"))
+                return items;
+
+            var seen = new HashSet<string>(Comparer);
+            return items.Where(item => !(item.Label ?? "").StartsWith("MAC [", StringComparison.OrdinalIgnoreCase) ||
+                                       seen.Add($"{item.Label}{OccurrenceSeparator}{(item.Value ?? "").Trim()}"));
+        }
+
         private static string GetComparisonValue(string categoryName, AuditItem? item)
         {
             if (item == null)
@@ -441,7 +476,9 @@ namespace SerialChecker
             string newValue,
             int occurrence,
             DiskContext? diskContext,
-            TpmContext? tpmContext)
+            TpmContext? tpmContext,
+            ArpContext? arpContext,
+            bool mirrorsSystemSerial)
         {
             bool changed = !string.Equals(oldValue.Trim(), newValue.Trim(), StringComparison.OrdinalIgnoreCase);
             ComparisonExpectation expectation = GetExpectation(category, label);
@@ -476,13 +513,54 @@ namespace SerialChecker
             bool newGeneric = IsGenericValue(newValue);
             bool isDiskIdentifier = Comparer.Equals(category, "Disk Drive Information") && DiskIdentifierLabels.Contains(label);
 
+            if (mirrorsSystemSerial)
+            {
+                item.Outcome = ComparisonOutcome.Info;
+                item.ResultTitle = "Same as System Serial";
+                item.ResultDetail = "Windows reads this from the same SMBIOS field as System Serial, so it is scored there.";
+                return item;
+            }
+
             // An unchanged ARP entry means the same network trace is still exposed. Removal, hiding, or
             // a changed entry is the desired privacy result for this spoofing-focused comparison.
             if (Comparer.Equals(category, "ARP Information"))
             {
-                bool currentArpHidden = newMissing || newUnavailable ||
-                                        newValue.Contains("No arp information", StringComparison.OrdinalIgnoreCase);
-                bool arpChanged = changed || oldMissing || currentArpHidden;
+                if (!IsArpEntryLabel(label))
+                {
+                    item.Outcome = ComparisonOutcome.Info;
+                    item.ResultTitle = "ARP status";
+                    item.ResultDetail = "Context only. It does not affect the spoofing result.";
+                    return item;
+                }
+
+                if (IsSharedArpEntry(label))
+                {
+                    item.Outcome = ComparisonOutcome.Info;
+                    item.ResultTitle = "Shared ARP entry";
+                    item.ResultDetail = "Broadcast and multicast entries are the same on every Windows PC. They are not an identifier.";
+                    return item;
+                }
+
+                if (oldMissing)
+                {
+                    item.Outcome = ComparisonOutcome.Info;
+                    item.ResultTitle = "New ARP entry";
+                    item.ResultDetail = "This device was not in the baseline ARP table. A new entry is context, not a spoofing result.";
+                    return item;
+                }
+
+                // Windows always lists broadcast entries, so a scan with no ARP entries at all means the
+                // read failed or was blocked. That cannot tell a hidden entry from a failed query.
+                if (arpContext?.CurrentTableReadable != true)
+                {
+                    item.Outcome = ComparisonOutcome.Unavailable;
+                    item.ResultTitle = "ARP table unreadable";
+                    item.ResultDetail = "The current scan read no ARP entries at all, so this entry cannot be confirmed as hidden.";
+                    return item;
+                }
+
+                bool currentArpHidden = newMissing || newUnavailable;
+                bool arpChanged = changed || currentArpHidden;
                 item.Outcome = arpChanged ? ComparisonOutcome.Pass : ComparisonOutcome.Attention;
                 item.ResultTitle = currentArpHidden
                     ? "Removed or hidden"
@@ -805,7 +883,9 @@ namespace SerialChecker
                     : ComparisonExpectation.Informational;
 
             if (Comparer.Equals(category, "ARP Information"))
-                return ComparisonExpectation.Informational;
+                return IsArpEntryLabel(label) && !IsSharedArpEntry(label)
+                    ? ComparisonExpectation.ShouldChange
+                    : ComparisonExpectation.Informational;
 
             if (Comparer.Equals(category, "Monitor Information"))
                 return label.Contains("Serial", StringComparison.OrdinalIgnoreCase)
@@ -918,6 +998,8 @@ namespace SerialChecker
                    Comparer.Equals(trimmed, "N/A") ||
                    Comparer.Equals(trimmed, "123456789") ||
                    Comparer.Equals(trimmed, "0123456789") ||
+                   Comparer.Equals(trimmed, "1234567890") ||
+                   Comparer.Equals(trimmed, "9876543210") ||
                    normalized.StartsWith("To be filled by OEM", StringComparison.OrdinalIgnoreCase) ||
                    normalized.StartsWith("To be filled by O E M", StringComparison.OrdinalIgnoreCase);
         }
@@ -934,6 +1016,22 @@ namespace SerialChecker
             return Comparer.Equals(label, "Manufacturer ID") ||
                    Comparer.Equals(label, "Manufacturer Version") ||
                    Comparer.Equals(label, "Spec Version");
+        }
+
+        private const string ArpEntryPrefix = "Physical Address:";
+
+        private static bool IsArpEntryLabel(string? label)
+        {
+            return (label ?? "").StartsWith(ArpEntryPrefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Broadcast (ff-ff-ff-ff-ff-ff), IPv4 multicast (01-00-5e-…), and IPv6 multicast (33-33-…).
+        private static bool IsSharedArpEntry(string label)
+        {
+            string mac = label[ArpEntryPrefix.Length..].Trim().Replace(':', '-');
+            return Comparer.Equals(mac, "ff-ff-ff-ff-ff-ff") ||
+                   mac.StartsWith("01-00-5e-", StringComparison.OrdinalIgnoreCase) ||
+                   mac.StartsWith("33-33-", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsZeroLike(string value)
@@ -1036,6 +1134,11 @@ namespace SerialChecker
                 NewStatus.Contains("Disabled", StringComparison.OrdinalIgnoreCase) ||
                 NewStatus.Contains("Inactive", StringComparison.OrdinalIgnoreCase) ||
                 NewStatus.Contains("Unavailable", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class ArpContext
+        {
+            public bool CurrentTableReadable { get; init; }
         }
 
         // ── Scope, filters, and search ──────────────────────────────
@@ -1334,6 +1437,168 @@ namespace SerialChecker
                 SearchBox.SelectAll();
                 e.Handled = true;
             }
+            else if (e.Key == Key.E && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                ExportButton_Click(sender, e);
+                e.Handled = true;
+            }
+        }
+
+        // ── Export ──────────────────────────────────────────────────
+
+        private const int ExportIconGlyph = 0xEDE1;
+        private const int SavedIconGlyph = 0xE73E;
+        private System.Windows.Threading.DispatcherTimer? _exportResetTimer;
+
+        private void ExportButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Export comparison",
+                FileName = $"Serial_Checker_Comparison_{DateTime.Now:yyyy-MM-dd_HHmm}",
+                DefaultExt = ".txt",
+                Filter = "Text report (*.txt)|*.txt|CSV spreadsheet (*.csv)|*.csv",
+                InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                AddExtension = true,
+                OverwritePrompt = true
+            };
+
+            if (dialog.ShowDialog(this) != true)
+                return;
+
+            try
+            {
+                WriteReport(dialog.FileName);
+                ShowExported(dialog.FileName);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message, "Export failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>Writes the checks currently shown (tab, outcome filter, and search) as CSV or a text report.</summary>
+        private void WriteReport(string path)
+        {
+            bool csv = string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase);
+            string content = csv ? BuildCsvReport() : BuildTextReport();
+
+            // UTF-8 with a byte-order mark so Excel reads "·" and "—" correctly.
+            File.WriteAllText(path, content, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+        }
+
+        private string BuildTextReport()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("==========================================");
+            sb.AppendLine("   SERIAL CHECKER · COMPARISON REPORT");
+            sb.AppendLine("            Made by Lumine");
+            sb.AppendLine("==========================================");
+            sb.AppendLine($"Generated : {DateTime.Now:yyyy-MM-dd HH:mm}");
+            sb.AppendLine($"Baseline  : {BaselineText}");
+            sb.AppendLine($"View      : {DescribeView()}");
+            sb.AppendLine($"Result    : {HeadlineText}{(ScoreText == "—" ? "" : $" ({ScoreText})")}");
+            sb.AppendLine($"            {PassedCount} pass · {StableCount} stable · {AttentionCount} attention · {UnavailableCount} unavailable · {InformationalCount} info");
+
+            bool afterCheck = false; // each check already ends with a blank line
+            foreach (ComparisonItem item in ComparisonItems)
+            {
+                if (item.IsSectionHeader)
+                {
+                    if (!afterCheck)
+                        sb.AppendLine();
+                    afterCheck = false;
+                    sb.AppendLine("------------------------------------------");
+                    sb.AppendLine($"{item.SectionTitle.ToUpperInvariant()}  ({item.SectionSubtitle})");
+                    sb.AppendLine("------------------------------------------");
+                    continue;
+                }
+
+                sb.AppendLine($"{$"[{OutcomeName(item.Outcome)}]",-14}{CheckName(item)}  ({item.ExpectationText})");
+                sb.AppendLine($"{"",-14}Baseline : {item.OldValue}");
+                sb.AppendLine($"{"",-14}Current  : {item.NewValue}");
+                sb.AppendLine($"{"",-14}{item.ResultTitle}: {item.ResultDetail}");
+                sb.AppendLine();
+                afterCheck = true;
+            }
+
+            return sb.ToString();
+        }
+
+        private string BuildCsvReport()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("Category,Check,Expectation,Baseline,Current,Changed,Outcome,Result,Detail");
+            foreach (ComparisonItem item in ComparisonItems)
+            {
+                if (item.IsSectionHeader)
+                    continue;
+
+                sb.AppendLine(string.Join(",", new[]
+                {
+                    item.Category,
+                    CheckName(item),
+                    item.ExpectationText,
+                    item.OldValue,
+                    item.NewValue,
+                    item.IsChanged ? "Yes" : "No",
+                    OutcomeName(item.Outcome),
+                    item.ResultTitle,
+                    item.ResultDetail
+                }.Select(CsvField)));
+            }
+
+            return sb.ToString();
+        }
+
+        private string DescribeView()
+        {
+            var parts = new List<string> { ActiveScopeDescription };
+            if (_outcomeFilter is ComparisonOutcome outcome)
+                parts.Add($"only {OutcomeName(outcome).ToLowerInvariant()}");
+            if (_searchText.Length > 0)
+                parts.Add($"search \"{_searchText}\"");
+            parts.Add(ResultCountText.ToLowerInvariant());
+            return string.Join(" · ", parts);
+        }
+
+        // Group rows (drive model, TPM status) carry the group name, e.g. "Drive 1 · DISK_STORAGE_MODEL".
+        private static string CheckName(ComparisonItem item) =>
+            item.IsGroupHeader && item.GroupTitle.Length > 0 ? $"{item.GroupTitle} · {item.Label}" : item.Label;
+
+        private static string OutcomeName(ComparisonOutcome outcome) => outcome.ToString().ToUpperInvariant();
+
+        private static string CsvField(string? value)
+        {
+            string text = value ?? "";
+
+            // A leading = + - @ makes Excel treat the cell as a formula; a quote mark keeps it as text.
+            if (text.Length > 0 && "=+-@".Contains(text[0]))
+                text = "'" + text;
+
+            return text.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
+                ? "\"" + text.Replace("\"", "\"\"") + "\""
+                : text;
+        }
+
+        private void ShowExported(string path)
+        {
+            ExportLabel.Text = "Saved";
+            ExportIcon.Text = char.ConvertFromUtf32(SavedIconGlyph);
+            ExportIcon.Foreground = (System.Windows.Media.Brush)FindResource("Status.Pass");
+            ExportButton.ToolTip = $"Saved to {path}";
+
+            _exportResetTimer?.Stop();
+            _exportResetTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            _exportResetTimer.Tick += (_, _) =>
+            {
+                _exportResetTimer?.Stop();
+                ExportLabel.Text = "Export results";
+                ExportIcon.Text = char.ConvertFromUtf32(ExportIconGlyph);
+                ExportIcon.ClearValue(TextBlock.ForegroundProperty);
+                ExportButton.ToolTip = "Save the checks shown below as a text report or CSV (Ctrl+E)";
+            };
+            _exportResetTimer.Start();
         }
 
         private void Window_StateChanged(object? sender, EventArgs e)

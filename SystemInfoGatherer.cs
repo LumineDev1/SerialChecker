@@ -577,15 +577,20 @@ namespace SerialChecker
                 var nics = NetworkInterface.GetAllNetworkInterfaces()
                     .Where(nic => (nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet || nic.NetworkInterfaceType == NetworkInterfaceType.Wireless80211))
                     .Where(nic => nic.OperationalStatus == OperationalStatus.Up)
-                    .Take(4)
                     .ToList();
 
+                // A virtual switch reports its NIC's MAC too; list each address once so repeats don't use up the four slots.
+                var seenMacs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var nic in nics)
                 {
                     string mac = nic.GetPhysicalAddress().ToString();
                     mac = string.Join(":", Enumerable.Range(0, mac.Length / 2).Select(i => mac.Substring(i * 2, 2)));
-                    if (!string.IsNullOrEmpty(mac))
-                        cat.Items.Add(new AuditItem { Label = "MAC [Cache]", Value = mac, TooltipText = $"Active Spoofable MAC of {nic.Name}" });
+                    if (string.IsNullOrEmpty(mac) || !seenMacs.Add(mac))
+                        continue;
+
+                    cat.Items.Add(new AuditItem { Label = "MAC [Cache]", Value = mac, TooltipText = $"Active Spoofable MAC of {nic.Name}" });
+                    if (seenMacs.Count == 4)
+                        break;
                 }
 
                 // DHCP & DNS (Active Connection)

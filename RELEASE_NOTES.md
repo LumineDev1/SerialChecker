@@ -1,40 +1,21 @@
-## Serial Checker 2.0.0
+## Serial Checker 2.0.1
 
-The tool formerly known as **spoofed?** is now **Serial Checker**, with a redesigned interface and a faster scan.
+### New: export your comparison results
+
+The Compare window now has an **Export results** button (or press **Ctrl+E**). It saves the checks you're looking at:
+
+- **Text report:** a readable summary with the baseline date, pass rate, and every check's baseline value, current value, and verdict, grouped by category
+- **CSV:** one row per check (category, check, expectation, baseline, current, changed, outcome, result, detail), ready for Excel or Google Sheets
+
+The export follows your current view: the **Important** or **All values** tab, an outcome filter (for example only **Attention**), and any search. Clear the filters first to export everything.
+
+### Fixed: more honest pass rates
+
+- **ARP:** when a scan reads no ARP entries at all, the baseline entries now show as **Unavailable** instead of each one counting as a pass. Broadcast and multicast entries, which are the same on every PC, are no longer scored, and a newly seen device is shown for context only.
+- **MAC addresses:** adapters that share one MAC (such as a virtual switch and its network card) are listed once, so one address is no longer scored several times and can't push a second adapter out of the list.
+- **BIOS Serial:** Windows reads it from the same SMBIOS field as System Serial, so while the two match it's scored once, under System Serial.
+- **Placeholder serials:** `9876543210` (reported by ASUS Aura controllers) and `1234567890` now count as placeholders.
 
 ### Download
 
-Grab `SerialChecker-2.0.0.exe` below. It's a single self-contained file, so no .NET install is needed. It asks for administrator rights on launch so it can read TPM, disk, and network IDs.
-
-### New
-
-- **Redesigned interface:** sidebar grouped by area, a card for each drive, RAM module, and GPU, and placeholder values dimmed so real IDs stand out
-- **All serials page:** every value from the scan on one page
-- **Per-tab baselines:** **Save baseline** on All serials saves every tab, and **Save tab baseline** inside a tab updates only that tab. Compare checks only the tabs that have a saved baseline.
-- **Compare window:** pass-rate summary, clickable outcome filters, search, and a baseline → current view for every check
-- **Search everything** with Ctrl+F
-- **Five colour themes:** Midnight, Ocean, Forest, Ember, Sakura
-- **Copy buttons** on every value, plus **Rescan** (F5)
-- **Shortcuts:** Ctrl+S saves a baseline and Ctrl+E exports a report
-- **`--no-elevate`** launch option for limited mode without the admin prompt
-
-### Faster
-
-- All 14 checks run at the same time. Without admin a full scan takes well under a second.
-- Hardware-accelerated window rendering and a virtualized list for long USB and comparison lists
-
-### Fixed
-
-- **Virtualization** showed "Enabled" on every PC. It now reads the real state.
-- **Family Serial** showed the SKU number. It now reads the SMBIOS system family.
-- A connected USB device could be listed as a ghost because of a letter-case mismatch, so cleanup could remove it.
-- Ghost cleanup no longer runs a temporary script file, and device IDs are escaped.
-- External tools (`arp`, `nvidia-smi`, PowerShell, Explorer) are started from their Windows paths, never from the app's folder.
-- Ghost cleanup no longer freezes the window.
-- A missing Windows install date no longer hides Machine GUID and Product ID.
-- A hung `arp` or `nvidia-smi` can no longer stall the scan.
-
-### Upgrading
-
-- **Baselines:** your existing baseline is copied over automatically on first launch. Data now lives in `%AppData%\Serial Checker`.
-- **Re-save your baseline after updating.** Virtualization and Family Serial now report real values, so an old baseline would flag them as changed.
+Grab `SerialChecker-2.0.1.exe` below. It's a single self-contained file with no install needed.

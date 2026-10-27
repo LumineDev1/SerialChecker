@@ -44,7 +44,7 @@ Each check gets one of five results:
 - **Five colour themes:** Midnight, Ocean, Forest, Ember, Sakura, remembered between launches
 - **Copy** any value with one click, or select it directly
 - **Export** a full text report of the scan to your Desktop (Ctrl+E)
-- **Export comparison results** as a text report or a CSV for Excel, either everything or just the filtered view
+- **Export comparison results** as a text report or a CSV for Excel, always with every check, whatever tab, filter, or search is active
 - **Ghost USB cleanup:** remove records of devices that are no longer connected
 - **Fast:** all checks run in parallel
 

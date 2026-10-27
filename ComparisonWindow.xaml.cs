@@ -1171,10 +1171,12 @@ namespace SerialChecker
             }
         }
 
-        private void UpdateSummary(IReadOnlyList<ComparisonItem> scope)
+        private readonly record struct OutcomeCounts(int Pass, int Stable, int Attention, int Unavailable, int Info);
+
+        private static OutcomeCounts CountOutcomes(IEnumerable<ComparisonItem> items)
         {
             int pass = 0, stable = 0, attention = 0, unavailable = 0, info = 0;
-            foreach (ComparisonItem item in scope)
+            foreach (ComparisonItem item in items)
             {
                 if (item.IsSectionHeader)
                     continue;
@@ -1189,6 +1191,21 @@ namespace SerialChecker
                 }
             }
 
+            return new OutcomeCounts(pass, stable, attention, unavailable, info);
+        }
+
+        private static string FormatHeadline(int pass, int targeted) => targeted == 0
+            ? "No targeted checks to score"
+            : $"{pass} of {targeted} targeted check{(targeted == 1 ? "" : "s")} passed";
+
+        private static string FormatScore(int pass, int targeted) => targeted == 0
+            ? "—"
+            : $"{Math.Round(pass * 100.0 / targeted):0}%";
+
+        private void UpdateSummary(IReadOnlyList<ComparisonItem> scope)
+        {
+            var (pass, stable, attention, unavailable, info) = CountOutcomes(scope);
+
             PassedCount = pass;
             StableCount = stable;
             AttentionCount = attention;
@@ -1196,18 +1213,16 @@ namespace SerialChecker
             InformationalCount = info;
 
             int targeted = pass + attention;
+            HeadlineText = FormatHeadline(pass, targeted);
+            ScoreText = FormatScore(pass, targeted);
             if (targeted == 0)
             {
-                HeadlineText = "No targeted checks to score";
-                ScoreText = "—";
                 VerdictText = "No verdict";
                 VerdictForeground = NeutralForeground;
                 VerdictBackground = NeutralBackground;
             }
             else
             {
-                HeadlineText = $"{pass} of {targeted} targeted check{(targeted == 1 ? "" : "s")} passed";
-                ScoreText = $"{Math.Round(pass * 100.0 / targeted):0}%";
                 if (attention == 0)
                 {
                     VerdictText = "All targeted checks passed";
@@ -1477,7 +1492,10 @@ namespace SerialChecker
             }
         }
 
-        /// <summary>Writes the checks currently shown (tab, outcome filter, and search) as CSV or a text report.</summary>
+        /// <summary>
+        /// Writes every check as CSV or a text report. The tab, outcome filter, and search only change
+        /// what is on screen, so an export is always the full comparison.
+        /// </summary>
         private void WriteReport(string path)
         {
             bool csv = string.Equals(Path.GetExtension(path), ".csv", StringComparison.OrdinalIgnoreCase);
@@ -1489,6 +1507,10 @@ namespace SerialChecker
 
         private string BuildTextReport()
         {
+            var (pass, stable, attention, unavailable, info) = CountOutcomes(_allComparisonItems);
+            int targeted = pass + attention;
+            string score = FormatScore(pass, targeted);
+
             var sb = new StringBuilder();
             sb.AppendLine("==========================================");
             sb.AppendLine("   SERIAL CHECKER · COMPARISON REPORT");
@@ -1496,12 +1518,12 @@ namespace SerialChecker
             sb.AppendLine("==========================================");
             sb.AppendLine($"Generated : {DateTime.Now:yyyy-MM-dd HH:mm}");
             sb.AppendLine($"Baseline  : {BaselineText}");
-            sb.AppendLine($"View      : {DescribeView()}");
-            sb.AppendLine($"Result    : {HeadlineText}{(ScoreText == "—" ? "" : $" ({ScoreText})")}");
-            sb.AppendLine($"            {PassedCount} pass · {StableCount} stable · {AttentionCount} attention · {UnavailableCount} unavailable · {InformationalCount} info");
+            sb.AppendLine($"View      : Every collected value · {AllItemCount} checks");
+            sb.AppendLine($"Result    : {FormatHeadline(pass, targeted)}{(score == "—" ? "" : $" ({score})")}");
+            sb.AppendLine($"            {pass} pass · {stable} stable · {attention} attention · {unavailable} unavailable · {info} info");
 
             bool afterCheck = false; // each check already ends with a blank line
-            foreach (ComparisonItem item in ComparisonItems)
+            foreach (ComparisonItem item in _allComparisonItems)
             {
                 if (item.IsSectionHeader)
                 {
@@ -1529,7 +1551,7 @@ namespace SerialChecker
         {
             var sb = new StringBuilder();
             sb.AppendLine("Category,Check,Expectation,Baseline,Current,Changed,Outcome,Result,Detail");
-            foreach (ComparisonItem item in ComparisonItems)
+            foreach (ComparisonItem item in _allComparisonItems)
             {
                 if (item.IsSectionHeader)
                     continue;
@@ -1549,17 +1571,6 @@ namespace SerialChecker
             }
 
             return sb.ToString();
-        }
-
-        private string DescribeView()
-        {
-            var parts = new List<string> { ActiveScopeDescription };
-            if (_outcomeFilter is ComparisonOutcome outcome)
-                parts.Add($"only {OutcomeName(outcome).ToLowerInvariant()}");
-            if (_searchText.Length > 0)
-                parts.Add($"search \"{_searchText}\"");
-            parts.Add(ResultCountText.ToLowerInvariant());
-            return string.Join(" · ", parts);
         }
 
         // Group rows (drive model, TPM status) carry the group name, e.g. "Drive 1 · DISK_STORAGE_MODEL".
@@ -1596,7 +1607,7 @@ namespace SerialChecker
                 ExportLabel.Text = "Export results";
                 ExportIcon.Text = char.ConvertFromUtf32(ExportIconGlyph);
                 ExportIcon.ClearValue(TextBlock.ForegroundProperty);
-                ExportButton.ToolTip = "Save the checks shown below as a text report or CSV (Ctrl+E)";
+                ExportButton.ToolTip = "Save every check as a text report or CSV, whatever the filters (Ctrl+E)";
             };
             _exportResetTimer.Start();
         }

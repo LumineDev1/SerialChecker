@@ -1,0 +1,363 @@
+<Window x:Class="SerialChecker.ComparisonWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:SerialChecker"
+        Title="Compare · Serial Checker" Height="860" Width="1320" MinWidth="980" MinHeight="600"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" ResizeMode="CanResize"
+        Background="{DynamicResource Bg.Window}"
+        Foreground="{StaticResource Text.Primary}"
+        FontFamily="{StaticResource UiFont}"
+        UseLayoutRounding="True"
+        PreviewKeyDown="Window_PreviewKeyDown"
+        StateChanged="Window_StateChanged">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="52" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" UseAeroCaptionButtons="False"/>
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <!-- Category banner: icon, title, subtitle, check count -->
+        <DataTemplate x:Key="SectionTemplate">
+            <Grid Margin="2,22,2,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Border Width="34" Height="34" CornerRadius="9" Background="{DynamicResource Accent.Soft}" VerticalAlignment="Center">
+                    <TextBlock Style="{StaticResource Icon}" Text="{Binding SectionTitle, Converter={StaticResource CategoryIcon}}" Foreground="{DynamicResource Accent.Text}" FontSize="15"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0,16,0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding SectionTitle}" FontFamily="{StaticResource DisplayFont}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" VerticalAlignment="Center"/>
+                        <Border Style="{StaticResource Chip}" Margin="10,0,0,0">
+                            <TextBlock Text="{Binding SectionTag}" FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource Text.Tertiary}"/>
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding SectionSubtitle}" Foreground="{StaticResource Text.Tertiary}" FontSize="12" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+                <Border Grid.Column="2" Style="{StaticResource Chip}" Padding="9,3">
+                    <TextBlock FontSize="11.5" Foreground="{StaticResource Text.Secondary}">
+                        <Run Text="{Binding SectionCheckCount, Mode=OneWay}" FontWeight="SemiBold"/><Run Text="{Binding SectionCheckNoun, Mode=OneWay}"/>
+                    </TextBlock>
+                </Border>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Group header: Drive N / Trusted Platform Module -->
+        <DataTemplate x:Key="GroupTemplate">
+            <Border Style="{StaticResource Card}" Background="{DynamicResource Bg.Elevated}" BorderBrush="{DynamicResource Border.Strong}" Margin="0,4,0,6">
+                <Grid>
+                    <Border Width="3" HorizontalAlignment="Left" Margin="0,10" CornerRadius="0,2,2,0" Background="{Binding StatusColor}"/>
+                    <Grid Margin="18,14,16,14">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="280"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="{Binding Label}" Style="{StaticResource Eyebrow}" FontFamily="{StaticResource MonoFont}" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding GroupTitle}" FontFamily="{StaticResource DisplayFont}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="0,3,0,0"/>
+                            <TextBlock Text="{Binding GroupSubtitle}" Foreground="{StaticResource Text.Tertiary}" FontSize="11.5" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <TextBlock Text="BASELINE" Style="{StaticResource Eyebrow}"/>
+                            <TextBox Style="{StaticResource ValueText}" Text="{Binding OldValue, Mode=OneWay}" Foreground="{Binding OldValueForeground}" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <TextBlock x:Name="Arrow" Grid.Column="2" Style="{StaticResource Icon}" Text="&#xE72A;" FontSize="11" Foreground="{StaticResource Text.Tertiary}" Margin="0,14,0,0"/>
+                        <StackPanel Grid.Column="3" VerticalAlignment="Center" Margin="8,0,16,0">
+                            <TextBlock Text="CURRENT" Style="{StaticResource Eyebrow}"/>
+                            <TextBox Style="{StaticResource ValueText}" Text="{Binding NewValue, Mode=OneWay}" Foreground="{Binding CurrentValueForeground}" FontWeight="SemiBold" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="4" VerticalAlignment="Center">
+                            <Border HorizontalAlignment="Left" CornerRadius="6" Padding="8,3" Background="{Binding ResultBackground}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="6" Height="6" Fill="{Binding StatusColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="{Binding ResultTitle}" Foreground="{Binding ResultForeground}" FontSize="11.5" FontWeight="SemiBold"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="{Binding ResultDetail}" Foreground="{StaticResource Text.Tertiary}" FontSize="11.5" TextWrapping="Wrap" LineHeight="16" Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                    <Setter TargetName="Arrow" Property="Foreground" Value="{Binding ResultForeground}"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- Regular check row -->
+        <DataTemplate x:Key="RowTemplate">
+            <Border x:Name="Card" Style="{StaticResource Card}" Margin="0,0,0,6">
+                <Grid>
+                    <Border Width="3" HorizontalAlignment="Left" Margin="0,10" CornerRadius="0,2,2,0" Background="{Binding StatusColor}"/>
+                    <Grid Margin="18,12,16,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="280"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                            <TextBlock Text="{Binding Label}" ToolTip="{Binding Label}" Foreground="{StaticResource Text.Primary}" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding ExpectationText}" Foreground="{StaticResource Text.Tertiary}" FontSize="11.5" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <TextBox x:Name="OldValueText" Grid.Column="1" Style="{StaticResource ValueText}" Text="{Binding OldValue, Mode=OneWay}" Foreground="{Binding OldValueForeground}" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="Arrow" Grid.Column="2" Style="{StaticResource Icon}" Text="&#xE72A;" FontSize="11" Foreground="{StaticResource Text.Tertiary}"/>
+                        <TextBox x:Name="NewValueText" Grid.Column="3" Style="{StaticResource ValueText}" Text="{Binding NewValue, Mode=OneWay}" Foreground="{Binding CurrentValueForeground}" Margin="8,0,16,0"/>
+                        <StackPanel Grid.Column="4" VerticalAlignment="Center">
+                            <Border HorizontalAlignment="Left" CornerRadius="6" Padding="8,3" Background="{Binding ResultBackground}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse Width="6" Height="6" Fill="{Binding StatusColor}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock Text="{Binding ResultTitle}" Foreground="{Binding ResultForeground}" FontSize="11.5" FontWeight="SemiBold"/>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="{Binding ResultDetail}" Foreground="{StaticResource Text.Tertiary}" FontSize="11.5" TextWrapping="Wrap" LineHeight="16" Margin="0,5,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+            <DataTemplate.Triggers>
+                <Trigger SourceName="Card" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="Card" Property="Background" Value="{DynamicResource Bg.SurfaceHover}"/>
+                </Trigger>
+                <DataTrigger Binding="{Binding StrikeOldValue}" Value="True">
+                    <Setter TargetName="OldValueText" Property="Opacity" Value="0.55"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsChanged}" Value="True">
+                    <Setter TargetName="Arrow" Property="Foreground" Value="{Binding ResultForeground}"/>
+                    <Setter TargetName="NewValueText" Property="FontWeight" Value="SemiBold"/>
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <local:ComparisonTemplateSelector x:Key="ComparisonTemplates"
+                                          SectionTemplate="{StaticResource SectionTemplate}"
+                                          GroupTemplate="{StaticResource GroupTemplate}"
+                                          RowTemplate="{StaticResource RowTemplate}"/>
+    </Window.Resources>
+
+    <Window.Triggers>
+        <EventTrigger RoutedEvent="Window.Loaded">
+            <BeginStoryboard>
+                <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.18">
+                        <DoubleAnimation.EasingFunction><QuadraticEase EasingMode="EaseOut"/></DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard>
+            </BeginStoryboard>
+        </EventTrigger>
+    </Window.Triggers>
+
+    <Grid x:Name="Root">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="52"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ── Title bar ─────────────────────────────────────────── -->
+        <Grid Grid.Row="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="22,0,0,0">
+                <Border Width="28" Height="28" CornerRadius="8" Background="{DynamicResource Accent.Soft}">
+                    <TextBlock Style="{StaticResource Icon}" Text="&#xE8AB;" FontSize="13" Foreground="{DynamicResource Accent.Text}"/>
+                </Border>
+                <TextBlock Text="Compare" FontFamily="{StaticResource DisplayFont}" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                <Border Width="1" Height="14" Background="{DynamicResource Border.Strong}" Margin="12,0" VerticalAlignment="Center"/>
+                <TextBlock Text="{Binding BaselineText}" Foreground="{StaticResource Text.Tertiary}" FontSize="12.5" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                <Button Style="{StaticResource Btn.Caption}" Content="&#xE921;" ToolTip="Minimize" Click="MinimizeButton_Click"/>
+                <Button x:Name="MaximizeButton" Style="{StaticResource Btn.Caption}" Content="&#xE922;" ToolTip="Maximize" Click="MaximizeButton_Click"/>
+                <Button Style="{StaticResource Btn.CaptionClose}" Content="&#xE8BB;" ToolTip="Close (Esc)" Click="CloseButton_Click"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ── Verdict summary ───────────────────────────────────── -->
+        <Border Grid.Row="1" Style="{StaticResource Card}" Margin="24,2,24,0" Padding="22,18">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <Border HorizontalAlignment="Left" CornerRadius="6" Padding="8,3" Background="{Binding VerdictBackground}">
+                        <TextBlock Text="{Binding VerdictText}" Foreground="{Binding VerdictForeground}" FontSize="11.5" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="{Binding HeadlineText}" FontFamily="{StaticResource DisplayFont}" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="0,10,0,0" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding HeadlineDetail}" Foreground="{StaticResource Text.Secondary}" FontSize="12.5" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="24,0,0,0">
+                    <TextBlock Text="{Binding ScoreText}" FontFamily="{StaticResource DisplayFont}" FontSize="36" FontWeight="SemiBold" Foreground="{Binding VerdictForeground}" HorizontalAlignment="Right"/>
+                    <TextBlock Text="targeted pass rate" Foreground="{StaticResource Text.Tertiary}" FontSize="11.5" HorizontalAlignment="Right"/>
+                </StackPanel>
+
+                <!-- Outcome proportion bar -->
+                <Grid Grid.Row="1" Grid.ColumnSpan="2" Height="6" Margin="0,16,0,0">
+                    <Border Background="{DynamicResource Bg.Elevated}" CornerRadius="3"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition x:Name="PassBarColumn" Width="*"/>
+                            <ColumnDefinition x:Name="StableBarColumn" Width="*"/>
+                            <ColumnDefinition x:Name="AttentionBarColumn" Width="*"/>
+                            <ColumnDefinition x:Name="UnavailableBarColumn" Width="*"/>
+                            <ColumnDefinition x:Name="InfoBarColumn" Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Margin="1,0" CornerRadius="3" Background="{StaticResource Status.Pass}"/>
+                        <Border Grid.Column="1" Margin="1,0" CornerRadius="3" Background="{StaticResource Status.Stable}"/>
+                        <Border Grid.Column="2" Margin="1,0" CornerRadius="3" Background="{StaticResource Status.Attention}"/>
+                        <Border Grid.Column="3" Margin="1,0" CornerRadius="3" Background="{StaticResource Status.Unavailable}"/>
+                        <Border Grid.Column="4" Margin="1,0" CornerRadius="3" Background="{StaticResource Status.Info}"/>
+                    </Grid>
+                </Grid>
+
+                <!-- Outcome filter chips -->
+                <WrapPanel Grid.Row="2" Grid.ColumnSpan="2" Margin="0,14,0,0">
+                    <ToggleButton x:Name="PassChip" Style="{StaticResource FilterChip}" Tag="{StaticResource Status.Pass}" Click="FilterChip_Click" Margin="0,0,8,0" ToolTip="Show only checks that passed">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Fill="{StaticResource Status.Pass}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding PassedCount}" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="8,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Pass" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="StableChip" Style="{StaticResource FilterChip}" Tag="{StaticResource Status.Stable}" Click="FilterChip_Click" Margin="0,0,8,0" ToolTip="Show only values that stayed the same as expected">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Fill="{StaticResource Status.Stable}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding StableCount}" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="8,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Stable" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="AttentionChip" Style="{StaticResource FilterChip}" Tag="{StaticResource Status.Attention}" Click="FilterChip_Click" Margin="0,0,8,0" ToolTip="Show only checks that need attention">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Fill="{StaticResource Status.Attention}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding AttentionCount}" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="8,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Attention" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="UnavailableChip" Style="{StaticResource FilterChip}" Tag="{StaticResource Status.Unavailable}" Click="FilterChip_Click" Margin="0,0,8,0" ToolTip="Show only checks with no readable value">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Fill="{StaticResource Status.Unavailable}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding UnavailableCount}" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="8,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Unavailable" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+                    <ToggleButton x:Name="InfoChip" Style="{StaticResource FilterChip}" Tag="{StaticResource Status.Info}" Click="FilterChip_Click" ToolTip="Show only informational values">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse Width="7" Height="7" Fill="{StaticResource Status.Info}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding InformationalCount}" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" Margin="8,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Info" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </ToggleButton>
+                </WrapPanel>
+            </Grid>
+        </Border>
+
+        <!-- ── Toolbar: scope tabs, search, hint ─────────────────── -->
+        <Grid Grid.Row="2" Margin="24,16,24,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{DynamicResource Bg.Surface}" BorderBrush="{DynamicResource Border.Subtle}" BorderThickness="1" CornerRadius="9" Padding="3" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                    <RadioButton x:Name="ImportantTab" GroupName="ComparisonScope" Style="{StaticResource SegmentTab}" Checked="ImportantTab_Checked" ToolTip="Key spoofing checks">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Important" VerticalAlignment="Center"/>
+                            <Border Style="{StaticResource Chip}" Background="#14FFFFFF" Margin="8,0,0,0">
+                                <TextBlock Text="{Binding ImportantItemCount}" FontSize="10.5" Foreground="{StaticResource Text.Secondary}"/>
+                            </Border>
+                        </StackPanel>
+                    </RadioButton>
+                    <RadioButton x:Name="AllTab" GroupName="ComparisonScope" Style="{StaticResource SegmentTab}" Checked="AllTab_Checked" ToolTip="Every collected value">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="All values" VerticalAlignment="Center"/>
+                            <Border Style="{StaticResource Chip}" Background="#14FFFFFF" Margin="8,0,0,0">
+                                <TextBlock Text="{Binding AllItemCount}" FontSize="10.5" Foreground="{StaticResource Text.Secondary}"/>
+                            </Border>
+                        </StackPanel>
+                    </RadioButton>
+                </StackPanel>
+            </Border>
+
+            <TextBox x:Name="SearchBox" Grid.Column="1" Style="{StaticResource SearchBox}" Width="290" Margin="12,0,0,0" VerticalAlignment="Center"
+                     Tag="Search checks, values, categories" TextChanged="SearchBox_TextChanged"/>
+
+            <StackPanel Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="16,0,0,0">
+                <TextBlock Text="{Binding ResultCountText}" Foreground="{StaticResource Text.Secondary}" FontSize="12" FontWeight="SemiBold" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"/>
+                <TextBlock Text="Pass means a targeted ID changed or became unreadable." Foreground="{StaticResource Text.Tertiary}" FontSize="11.5" HorizontalAlignment="Right" TextTrimming="CharacterEllipsis" Margin="0,2,0,0"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ── Column headers (aligned with row cards) ───────────── -->
+        <Grid Grid.Row="3" Margin="43,18,51,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="230"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="32"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="280"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="CHECK" Style="{StaticResource Eyebrow}"/>
+            <TextBlock Grid.Column="1" Text="BASELINE" Style="{StaticResource Eyebrow}"/>
+            <TextBlock Grid.Column="3" Text="CURRENT" Style="{StaticResource Eyebrow}" Margin="8,0,0,0"/>
+            <TextBlock Grid.Column="4" Text="ASSESSMENT" Style="{StaticResource Eyebrow}"/>
+        </Grid>
+
+        <!-- ── Results (virtualized) ─────────────────────────────── -->
+        <ItemsControl x:Name="ComparisonList" Grid.Row="4" Margin="24,0,14,12"
+                      ItemsSource="{Binding ComparisonItems}"
+                      ItemTemplateSelector="{StaticResource ComparisonTemplates}"
+                      Focusable="False"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      VirtualizingPanel.ScrollUnit="Pixel"
+                      ScrollViewer.CanContentScroll="True"
+                      PreviewMouseWheel="ComparisonList_PreviewMouseWheel">
+            <ItemsControl.Template>
+                <ControlTemplate TargetType="ItemsControl">
+                    <ScrollViewer x:Name="ListScroller" CanContentScroll="True" Focusable="False"
+                                  VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsPresenter Margin="0,0,10,0"/>
+                    </ScrollViewer>
+                </ControlTemplate>
+            </ItemsControl.Template>
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <VirtualizingStackPanel/>
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+        </ItemsControl>
+
+        <!-- Empty state -->
+        <StackPanel Grid.Row="4" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,60"
+                    Visibility="{Binding HasNoResults, Converter={StaticResource BoolToVisibility}}">
+            <Border Width="48" Height="48" CornerRadius="12" Background="{DynamicResource Bg.Elevated}" HorizontalAlignment="Center">
+                <TextBlock Style="{StaticResource Icon}" Text="&#xE71C;" FontSize="18" Foreground="{StaticResource Text.Tertiary}"/>
+            </Border>
+            <TextBlock Text="No checks match" FontFamily="{StaticResource DisplayFont}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text.Primary}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+            <TextBlock Text="Clear the filter or search to see every check." Foreground="{StaticResource Text.Tertiary}" FontSize="12.5" HorizontalAlignment="Center" Margin="0,4,0,16"/>
+            <Button Style="{StaticResource Btn}" Content="Clear filters" HorizontalAlignment="Center" Click="ClearFilters_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
